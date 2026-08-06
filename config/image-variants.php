@@ -179,11 +179,11 @@ return [
 
     'presets' => [
 
-        'thumb' => ['cover' => [100, 100], 'quality' => 80],
-
-        'photo' => ['scale' => [800, null], 'quality' => 80],
-
-        'hero' => ['scale' => [1600, null], 'quality' => 80],
+//        'thumb' => ['cover' => [100, 100], 'quality' => 80],
+//
+//        'photo' => ['scale' => [800, null], 'quality' => 80],
+//
+//        'hero' => ['scale' => [1600, null], 'quality' => 80],
 
     ],
 
