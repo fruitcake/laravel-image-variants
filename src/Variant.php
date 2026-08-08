@@ -26,6 +26,40 @@ final class Variant
         public readonly string $src,
         public readonly string $name,
     ) {
+        // Checked here rather than trusted from whoever built this, so that
+        // path() cannot escape the cache directory however a Variant came to
+        // exist. Over HTTP the route pattern already constrains these and the
+        // signature has to match — but that makes this safe by arrangement,
+        // and a Variant built in PHP goes through neither.
+        $this->guardSegment('preset', $preset);
+        $this->guardSegment('name', $name);
+        $this->guardSource($src);
+    }
+
+    /**
+     * A single path and URL segment: no separators, no climbing, nothing that
+     * changes which directory it lands in.
+     *
+     * @throws VariantException
+     */
+    private function guardSegment(string $what, string $value): void
+    {
+        if ($value === '' || preg_match('#[/\\\\\0]#', $value) === 1 || str_contains($value, '..')) {
+            throw new VariantException("A variant [{$what}] cannot be [{$value}].");
+        }
+    }
+
+    /**
+     * The source may name a subdirectory, so it keeps its slashes — but it is
+     * still relative, and still may not climb.
+     *
+     * @throws VariantException
+     */
+    private function guardSource(string $src): void
+    {
+        if ($src === '' || str_contains($src, "\0") || str_contains($src, '..') || str_starts_with($src, '/')) {
+            throw new VariantException("Source [{$src}] is not a valid relative path.");
+        }
     }
 
     /**

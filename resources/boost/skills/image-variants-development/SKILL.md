@@ -26,14 +26,20 @@ The URL looks like this:
 /storage/variants/{preset}/{hash}/{name}?src=…&…operations…
 ```
 
-The `hash` is an HMAC keyed with `APP_KEY` over the preset, operations, source
-and name. It is what makes the endpoint safe to expose — without the key nobody
-can produce a URL the controller will act on.
+The `hash` is an HMAC keyed with `APP_KEY` over the preset, the merged
+operations, the source and the name. It is what makes the endpoint safe to
+expose — without the key nobody can produce a URL the package will act on.
+
+There is no unsigned path to a variant, for any preset. `fromRequest()` verifies
+the signature itself and throws rather than returning an unverified object, so
+there is nothing to bypass and nothing for a caller to forget.
 
 ## Rules
 
 - **Never build a variant URL by hand, in PHP or in a template.** The HMAC will
   not match and the request will 404. Always go through the facade or component.
+  This applies to preset URLs too — the preset name in the path is signed, not a
+  shortcut around signing.
 - **Never write to `config('image-variants.cache')` yourself.** It is generated
   output; the package owns it.
 - **`$src` is relative to the configured source disk**, not `public_path()`.

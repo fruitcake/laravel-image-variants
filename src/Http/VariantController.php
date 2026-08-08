@@ -28,14 +28,12 @@ class VariantController
         string $name,
     ): BinaryFileResponse {
         try {
-            $variant = $factory->fromRequest($request, $preset, $name);
-
-            // Nothing is read from or written to disk until the URL proves it came
-            // from us; otherwise the endpoint would be an open invitation to fill
-            // the cache with junk.
-            if (! hash_equals($variant->hash(), $hash)) {
-                abort(404);
-            }
+            // Nothing is read from or written to disk until the URL proves it
+            // came from us; otherwise the endpoint would be an open invitation
+            // to fill the cache with junk. fromRequest() will not hand back a
+            // variant at all unless the signature checks out, so there is no
+            // unverified object here to accidentally act on.
+            $variant = $factory->fromRequest($request, $preset, $hash, $name);
 
             $path = $generator->generate($variant);
         } catch (InvalidArgumentException|ImageException $e) {

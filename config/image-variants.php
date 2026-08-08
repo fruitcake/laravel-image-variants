@@ -69,8 +69,10 @@ return [
     | Limits
     |--------------------------------------------------------------------------
     |
-    | URLs are keyed with an HMAC, so only URLs this application generated can
-    | produce a variant at all. These limits are the second line of defence.
+    | Every URL is keyed with an HMAC over the preset, the merged operations, the
+    | source and the name — there is no unsigned path to a variant, whatever the
+    | preset — so only URLs this application generated can produce one at all.
+    | These limits are the second line of defence.
     |
     */
 

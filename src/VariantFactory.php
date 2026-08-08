@@ -115,14 +115,18 @@ class VariantFactory
     }
 
     /**
-     * Rebuild the variant an incoming request describes.
+     * Rebuild the variant an incoming request describes, and refuse it unless
+     * the signature in the path is the one this application would have produced.
      *
-     * The result is untrusted until its hash has been checked against the one in
-     * the path — see VariantController.
+     * The check lives here rather than in the caller so that there is no way to
+     * obtain a Variant from a request without it: an unsigned request cannot be
+     * turned into something a caller might go on to generate, whatever the
+     * preset, the operations, or the source say.
      *
+     * @throws VariantException
      * @throws InvalidArgumentException
      */
-    public function fromRequest(Request $request, string $preset, string $name): Variant
+    public function fromRequest(Request $request, string $preset, string $hash, string $name): Variant
     {
         $query = $request->query();
 
@@ -138,7 +142,13 @@ class VariantFactory
 
         $this->guardFormat(strtolower(pathinfo($name, PATHINFO_EXTENSION)));
 
-        return new Variant($preset, $normalized, ltrim($src, '/'), $name);
+        $variant = new Variant($preset, $normalized, ltrim($src, '/'), $name);
+
+        if (! hash_equals($variant->hash(), $hash)) {
+            throw new VariantException('The signature does not match this URL.');
+        }
+
+        return $variant;
     }
 
     /**

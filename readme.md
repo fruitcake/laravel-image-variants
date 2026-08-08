@@ -381,9 +381,35 @@ until cleaned up; see below.)
   with a million sizes of the same image, and no separate signature parameter is
   needed. Nothing is read from or written to disk until the hash checks out.
 
-The controller is a second line of defence behind that: sources are resolved
-inside the configured disk (and prefix) and rejected if they escape it, output
-formats are limited to `output_formats`, and dimensions to `max_dimension`.
+### The signature is never optional
+
+There is no unsigned path to a variant. `VariantFactory::fromRequest()` verifies
+the hash itself and throws rather than returning, so a request that is not signed
+cannot become a `Variant` at all — there is no unverified object for a caller to
+forget to check. That covers every case equally: presets, `custom` operations, a
+source in a subdirectory, a renamed file.
+
+Every part of the URL is covered. Swapping `thumb` for `wide`, for `custom`, or
+for a preset that does not exist, changing the source, adding or altering an
+operation, renaming the file — each produces a different hash and a 404, and
+nothing is written to disk on the way.
+
+What is signed is the operations **after** the preset is merged in. So for a
+preset URL the query is redundant — `?src=uploads/photo.jpg` on its own rebuilds
+the identical variant and validates. That is the preset name in the path earning
+its keep, not a gap: the merged result is what gets hashed, so the only thing
+reachable under a given signature is still the one variant that produced it.
+
+Behind that, a `Variant` cannot even hold a path that would escape. `preset` and
+`name` are single path segments and are refused if they contain a separator, a
+`..`, or a null byte; `src` may name a subdirectory but may not climb or be
+absolute. So `path()` stays inside the cache directory however a `Variant` was
+built — including one constructed directly in PHP, which goes through neither the
+route pattern nor the signature.
+
+Sources are then resolved inside the configured disk (and prefix) and rejected if
+they escape it, output formats are limited to `output_formats`, and dimensions to
+`max_dimension`.
 
 `APP_KEY` must be set. Without it the digest would be plain SHA-256 over public
 inputs — computable by anyone, turning the endpoint into an open resize service —
