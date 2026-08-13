@@ -4,6 +4,7 @@ namespace Fruitcake\ImageVariants\Tests;
 
 use Fruitcake\ImageVariants\Facades\Variants;
 use Fruitcake\ImageVariants\Operations;
+use Fruitcake\ImageVariants\VariantConfigurationException;
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
@@ -93,12 +94,134 @@ class ImageVariantTest extends TestCase
         $this->assertSame(['cover' => '60,40', 'quality' => '50'], Operations::toQuery($variant->operations));
     }
 
+    /**
+     * A false operation drops an inherited value rather than replacing it — but
+     * only where the server can see the same thing, which means in a preset. Done
+     * on top of one, the drop leaves no trace in the query, so the server merges
+     * the preset back in and refuses its own URL. That used to be a silent 404.
+     */
     #[Test]
-    public function a_false_operation_drops_the_presets_value_rather_than_replacing_it(): void
+    public function an_operation_the_preset_defines_cannot_be_dropped_on_top_of_it(): void
     {
-        $variant = Variants::make('photo.png', 'thumb', 'webp', operations: ['quality' => false]);
+        $this->assertThrows(
+            fn () => Variants::make('photo.png', 'thumb', 'webp', operations: ['quality' => false]),
+            InvalidArgumentException::class,
+        );
+    }
+
+    #[Test]
+    public function dropping_an_operation_nothing_inherits_changes_nothing(): void
+    {
+        config(['image-variants.quality' => null]);
+
+        $variant = Variants::make('photo.png', ['cover' => [60, 40]], 'webp', operations: ['grayscale' => false]);
 
         $this->assertSame(['cover' => '60,40'], Operations::toQuery($variant->operations));
+    }
+
+    #[Test]
+    public function it_falls_back_to_the_configured_quality(): void
+    {
+        config(['image-variants.quality' => 65]);
+
+        $variant = Variants::make('photo.png', ['cover' => [60, 40]], 'webp');
+
+        $this->assertSame(['cover' => '60,40', 'quality' => '65'], Operations::toQuery($variant->operations));
+    }
+
+    #[Test]
+    public function a_preset_and_an_operation_both_outrank_the_configured_quality(): void
+    {
+        config(['image-variants.quality' => 65]);
+
+        $this->assertSame(
+            ['cover' => '60,40', 'quality' => '80'],
+            Operations::toQuery(Variants::make('photo.png', 'thumb', 'webp')->operations),
+        );
+
+        $this->assertSame(
+            ['cover' => '60,40', 'quality' => '50'],
+            Operations::toQuery(Variants::make('photo.png', 'thumb', 'webp', operations: ['quality' => 50])->operations),
+        );
+    }
+
+    #[Test]
+    public function a_configured_quality_of_null_leaves_the_encoder_alone(): void
+    {
+        config(['image-variants.quality' => null]);
+
+        $variant = Variants::make('photo.png', ['cover' => [60, 40]], 'webp');
+
+        $this->assertSame(['cover' => '60,40'], Operations::toQuery($variant->operations));
+    }
+
+    /**
+     * The default is merged underneath the preset, so a preset dropping quality
+     * drops the default with it — and because both sides of the URL merge the
+     * same two layers, the server arrives at the same variant and the signature
+     * still matches.
+     */
+    #[Test]
+    public function a_preset_can_drop_the_configured_quality(): void
+    {
+        config([
+            'image-variants.quality' => 65,
+            'image-variants.presets.raw' => ['cover' => [60, 40], 'quality' => false],
+        ]);
+
+        $variant = Variants::make('photo.png', 'raw', 'webp');
+
+        $this->assertSame(['cover' => '60,40'], Operations::toQuery($variant->operations));
+
+        $this->get($variant->url())->assertOk();
+    }
+
+    /**
+     * The default is part of what gets signed, so the server supplies it for a
+     * URL that leaves it out exactly as a preset does.
+     */
+    #[Test]
+    public function the_configured_quality_survives_the_round_trip(): void
+    {
+        config(['image-variants.quality' => 65]);
+
+        $variant = Variants::make('photo.png', ['cover' => [60, 40]], 'webp');
+
+        $this->assertStringContainsString('quality=65', $variant->url());
+
+        [$path, $query] = explode('?', $variant->url(), 2);
+
+        $this->get($variant->url())->assertOk();
+        $this->get($path.'?'.str_replace('&quality=65', '', $query))->assertOk();
+    }
+
+    #[Test]
+    public function changing_the_configured_quality_moves_its_urls_to_a_new_hash(): void
+    {
+        config(['image-variants.quality' => 65]);
+
+        $before = Variants::make('photo.png', ['cover' => [60, 40]], 'webp')->hash();
+
+        config(['image-variants.quality' => 70]);
+
+        $this->assertNotSame($before, Variants::make('photo.png', ['cover' => [60, 40]], 'webp')->hash());
+    }
+
+    /**
+     * A misconfigured default is the application's problem rather than a bad
+     * URL, so it raises rather than turning every image into a 404.
+     */
+    #[Test]
+    public function it_rejects_a_configured_quality_outside_the_grammar(): void
+    {
+        foreach ([0, 101, -10, 80.5, 'high', []] as $quality) {
+            config(['image-variants.quality' => $quality]);
+
+            $this->assertThrows(
+                fn () => Variants::make('photo.png', ['cover' => [60, 40]], 'webp'),
+                VariantConfigurationException::class,
+            );
+        }
     }
 
     #[Test]
@@ -203,9 +326,10 @@ class ImageVariantTest extends TestCase
         $invalid = [
             ['frobnicate' => 1],                       // unknown operation
             ['cover' => [10, 10], 'scale' => [10]],    // two geometry operations
-            ['cover' => [9999, 9999]],                 // over max_dimension
             ['cover' => [60, null]],                   // cover needs both sides
+            ['cover' => [0, 10]],                      // a dimension below 1
             ['crop' => [30, 20, 5]],                   // an x offset without a y
+            ['crop' => [30, 20, -5, 0]],               // a negative offset
             ['quality' => 0],                          // out of range
             ['contain' => [10, 10, 'zzz']],            // not a colour
             ['flip' => 'x'],                           // not a direction
@@ -213,6 +337,26 @@ class ImageVariantTest extends TestCase
 
         foreach ($invalid as $operations) {
             $this->assertThrows(fn () => Operations::normalize($operations), InvalidArgumentException::class);
+        }
+    }
+
+    /**
+     * Dimensions have a floor but no ceiling. Nothing can ask for a variant
+     * without a signature over the operations that describe it, so the only
+     * thing able to request a 20000px image is the application's own code —
+     * which is entitled to one.
+     */
+    #[Test]
+    public function it_does_not_bound_the_dimensions_a_signed_url_may_ask_for(): void
+    {
+        $cases = [
+            [['scale' => 20000], ['scale' => '20000']],
+            [['cover' => [9000, 9000]], ['cover' => '9000,9000']],
+            [['crop' => [9000, 9000, 9000, 9000]], ['crop' => '9000,9000,9000,9000']],
+        ];
+
+        foreach ($cases as [$operations, $expected]) {
+            $this->assertSame($expected, Operations::toQuery(Operations::normalize($operations)));
         }
     }
 

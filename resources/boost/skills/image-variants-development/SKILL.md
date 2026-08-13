@@ -136,13 +136,18 @@ fixed order regardless of how they were written:
 | `grayscale` | — | `['grayscale' => true]` |
 | `blur` | `0–100`, default `5` | `['blur' => 10]` |
 | `sharpen` | `0–100`, default `10` | `['sharpen' => 15]` |
-| `quality` | `1–100` | `['quality' => 80]` |
+| `quality` | `1–100`, defaults to `image-variants.quality` | `['quality' => 80]` |
 
 - `scale` preserves aspect ratio and never enlarges past the source. `resize`
   does not preserve it. `cover` and `contain` need both dimensions.
 - Backgrounds are bare hex without `#` (`ffffff` or `fff`), or `dominant`.
-- Passing `false` or `null` removes an operation a preset set:
-  `Variants::url('bg.jpg', 'thumb', operations: ['quality' => false])`.
+- `quality` falls back to the configured `image-variants.quality` (`80`) when
+  neither the preset nor the URL sets one. It is merged underneath both, and
+  signed like anything else, so changing it regenerates the affected variants.
+- Passing `false` or `null` removes an operation, but only in a **preset** —
+  `'original' => ['scale' => [2000, null], 'quality' => false]`. A drop leaves no
+  trace in the query, so doing it in `$operations` on top of a preset or the
+  configured default throws rather than returning a URL that would 404.
 - Anything outside the grammar throws `InvalidArgumentException` when building
   the URL, and 404s when it arrives over HTTP.
 
@@ -164,11 +169,11 @@ fixed order regardless of how they were written:
 | `source.disk` | `public` | Disk sources are read from. Any disk, including `s3`. |
 | `source.prefix` | `null` | Confines sources to a directory within that disk. |
 | `cache` | `storage_path('app/public/variants')` | Always a local path, so the web server can serve it. |
-| `max_dimension` | `4000` | Bounds what a URL may ask for. |
 | `max_source_megapixels` | `24` | Bounds what decoding costs. `0` disables. |
+| `quality` | `80` | Used when neither the preset nor the URL sets one. `null` leaves it to the encoder. |
 | `blade.component` | `variant` | Rename if the app already has an `<x-variant>`. |
 | `lock.*` | enabled | Serialises generation of the same variant across workers. |
-| `presets` | thumb, photo, hero | |
+| `presets` | `[]` | |
 
 ## Exceptions
 

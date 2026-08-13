@@ -34,6 +34,7 @@ class VariantFactory
      * @param  array<string, mixed>  $operations
      *
      * @throws InvalidArgumentException
+     * @throws VariantConfigurationException
      */
     public function make(
         string $src,
@@ -47,7 +48,7 @@ class VariantFactory
             $preset = self::CUSTOM;
         }
 
-        $normalized = Operations::normalize(array_merge($this->preset($preset), $operations));
+        $normalized = $this->operations($preset, $operations);
 
         $format = strtolower($format ?: pathinfo($src, PATHINFO_EXTENSION));
 
@@ -125,6 +126,7 @@ class VariantFactory
      *
      * @throws VariantException
      * @throws InvalidArgumentException
+     * @throws VariantConfigurationException
      */
     public function fromRequest(Request $request, string $preset, string $hash, string $name): Variant
     {
@@ -138,7 +140,7 @@ class VariantFactory
             throw new InvalidArgumentException('A [src] parameter is required.');
         }
 
-        $normalized = Operations::normalize(array_merge($this->preset($preset), $query));
+        $normalized = $this->operations($preset, $query);
 
         $this->guardFormat(strtolower(pathinfo($name, PATHINFO_EXTENSION)));
 
@@ -149,6 +151,106 @@ class VariantFactory
         }
 
         return $variant;
+    }
+
+    /**
+     * The operations a variant is built from: the configured defaults, the preset
+     * over those, and the caller's over both.
+     *
+     * Both sides of a URL go through here, which is the whole point — the query
+     * only carries what the operations normalised to, so the server can rebuild
+     * the same variant from the same layers or the signature will not match.
+     *
+     * @param  array<string, mixed>  $operations
+     * @return array<string, list<mixed>>
+     *
+     * @throws InvalidArgumentException
+     * @throws VariantConfigurationException
+     */
+    protected function operations(string $preset, array $operations): array
+    {
+        $inherited = array_merge($this->defaults(), $this->preset($preset));
+
+        $this->guardDropped($inherited, $operations);
+
+        return Operations::normalize(array_merge($inherited, $operations));
+    }
+
+    /**
+     * Refuse to switch off an operation the preset or the defaults still define.
+     *
+     * A dropped operation normalises to nothing at all, so it leaves no trace in
+     * the query — and the server, merging the same two layers back in, rebuilds
+     * the variant *with* it and refuses its own URL. An exception while building
+     * the page beats a 404 in production for an image that looks fine locally.
+     *
+     * Dropping something neither layer defines changes nothing and is allowed,
+     * which is what makes this a guard rather than a ban: the way to have a
+     * variant without an inherited operation is a preset that drops it, where
+     * both sides see the same thing.
+     *
+     * @param  array<string, mixed>  $inherited
+     * @param  array<string, mixed>  $operations
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function guardDropped(array $inherited, array $operations): void
+    {
+        $inherited = array_change_key_case($inherited);
+
+        foreach ($operations as $name => $value) {
+            if ($value !== false && $value !== null) {
+                continue;
+            }
+
+            $name = strtolower((string) $name);
+
+            // `??` covers the null case too, which is the other way a layer
+            // below can have dropped this already.
+            if (($inherited[$name] ?? false) === false) {
+                continue;
+            }
+
+            throw new InvalidArgumentException(
+                "Operation [{$name}] cannot be switched off here, because the preset or the configured ".
+                'defaults still define it and the URL has no way to carry the difference. Define a preset '.
+                "that drops [{$name}] instead."
+            );
+        }
+    }
+
+    /**
+     * Operations applied unless something above them says otherwise.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws VariantConfigurationException
+     */
+    protected function defaults(): array
+    {
+        $quality = config('image-variants.quality');
+
+        // Absent is the same as unset: no quality operation, and the encoder
+        // uses whatever it defaults to.
+        if ($quality === null || $quality === false) {
+            return [];
+        }
+
+        // Checked here rather than left to Operations, which would report it as
+        // a bad operation on a call that never mentioned quality at all.
+        if (! is_int($quality) && ! (is_string($quality) && preg_match('/^\d+$/', $quality) === 1)) {
+            throw new VariantConfigurationException(
+                'Set [image-variants.quality] to a whole number between 1 and 100, or null to leave it to the encoder.'
+            );
+        }
+
+        if ((int) $quality < 1 || (int) $quality > 100) {
+            throw new VariantConfigurationException(
+                "[image-variants.quality] is {$quality}, which is outside the 1–100 the operation accepts."
+            );
+        }
+
+        return ['quality' => (int) $quality];
     }
 
     /**

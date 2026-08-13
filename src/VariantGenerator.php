@@ -153,11 +153,12 @@ class VariantGenerator
      * Refuse a source whose pixel count would cost more to decode than it is
      * worth, however small the file is.
      *
-     * `max_dimension` bounds what a URL may *ask* for, which is no protection at
-     * all here: a solid-colour 10000x10000 PNG is 300KB on disk and ~380MB once
-     * decoded, and asking it for a 60x40 thumbnail still pays that in full. With
-     * the default source disk being where uploads land, anyone who can upload an
-     * avatar could otherwise exhaust a worker on every variant of it.
+     * The signature bounds what a URL may *ask* for, which is no protection at
+     * all here: what a source costs to decode is decided by the source, not by
+     * the operations. A solid-colour 10000x10000 PNG is 300KB on disk and ~380MB
+     * once decoded, and asking it for a 60x40 thumbnail still pays that in full.
+     * With the default source disk being where uploads land, anyone who can
+     * upload an avatar could otherwise exhaust a worker on every variant of it.
      *
      * The header is read on its own, so nothing is decoded to find this out.
      *
