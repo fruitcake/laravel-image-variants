@@ -7,10 +7,16 @@ namespace Fruitcake\ImageVariants;
  *
  *     /storage/variants/{preset}/{hash}/{name}?src=…&…operations…
  *
- * Only the three path segments decide where the file lands on disk. The query is
- * what the hash is computed over, so the first request can reconstruct the work to
+ * Only the three path segments decide where the file lands on disk. The hash is
+ * computed over every operation, so the first request can reconstruct the work to
  * do — and every request after that is answered by the web server from the cached
  * file, query string and all, without PHP being involved.
+ *
+ * The query carries less than the hash covers, because it does not have to carry
+ * what the server can look up: the preset and the configured defaults are merged
+ * back in before the signature is checked, so an operation that came from either
+ * is spelled out only when a caller overrode it. A preset URL is therefore just
+ * its source, and none of it is optional — anything the query does say is signed.
  */
 final class Variant
 {
@@ -19,12 +25,17 @@ final class Variant
      * @param  array<string, list<mixed>>  $operations  Normalised, as returned by Operations::normalize().
      * @param  string  $src  Source path, relative to the configured source directory.
      * @param  string  $name  The filename the variant is served as, including its extension.
+     * @param  array<string, list<mixed>>|null  $explicit  The subset of $operations the URL spells
+     *                                                     out. Null spells out all of them, which
+     *                                                     is what a Variant built by hand wants:
+     *                                                     nothing else knows what its preset covers.
      */
     public function __construct(
         public readonly string $preset,
         public readonly array $operations,
         public readonly string $src,
         public readonly string $name,
+        public readonly ?array $explicit = null,
     ) {
         // Checked here rather than trusted from whoever built this, so that
         // path() cannot escape the cache directory however a Variant came to
@@ -152,15 +163,19 @@ final class Variant
     }
 
     /**
+     * What the URL says. Only what the server cannot work out for itself, which is
+     * the source and whatever a caller asked for on top of the preset.
+     *
      * @return array<string, string>
      */
     public function query(): array
     {
-        return ['src' => $this->src] + Operations::toQuery($this->operations);
+        return ['src' => $this->src] + Operations::toQuery($this->explicit ?? $this->operations);
     }
 
     /**
-     * The exact string that gets hashed. Built from the normalised operations, so
+     * The exact string that gets hashed. Built from *every* normalised operation,
+     * including the ones the query leaves to the preset and the defaults, so
      * however the incoming URL was written, both sides arrive at the same digest.
      */
     private function canonicalQuery(): string

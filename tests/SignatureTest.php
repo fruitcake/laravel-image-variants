@@ -79,7 +79,7 @@ class SignatureTest extends TestCase
             'source climbing out of the disk' => "/storage/variants/{$preset}/{$hash}/{$name}?src=../../outside/private.png&cover=20,20&quality=80",
             'absolute source' => "/storage/variants/{$preset}/{$hash}/{$name}?src=/etc/hosts&cover=20,20&quality=80",
             'an operation added' => "/storage/variants/{$preset}/{$hash}/{$name}?{$query}&grayscale=1",
-            'an operation changed' => "/storage/variants/{$preset}/{$hash}/{$name}?".str_replace('quality=80', 'quality=70', $query),
+            'an operation overridden' => "/storage/variants/{$preset}/{$hash}/{$name}?{$query}&quality=70",
             'name changed' => "/storage/variants/{$preset}/{$hash}/other.webp?{$query}",
             'hash zeroed' => "/storage/variants/{$preset}/0000000000/{$name}?{$query}",
         ];
