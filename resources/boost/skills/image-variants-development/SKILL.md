@@ -30,6 +30,12 @@ The `hash` is an HMAC keyed with `APP_KEY` over the preset, the merged
 operations, the source and the name. It is what makes the endpoint safe to
 expose — without the key nobody can produce a URL the package will act on.
 
+The hash covers more than the query says. The preset and the configured defaults
+are merged back in before the signature is checked, so the query carries only
+what the server cannot look up: the source, plus whatever a caller added or
+overrode. A preset URL is therefore just `?src=…`. A shorter query says less; it
+never permits more.
+
 There is no unsigned path to a variant, for any preset. `fromRequest()` verifies
 the signature itself and throws rather than returning an unverified object, so
 there is nothing to bypass and nothing for a caller to forget.

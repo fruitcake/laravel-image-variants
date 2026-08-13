@@ -177,22 +177,54 @@ class ImageVariantTest extends TestCase
     }
 
     /**
-     * The default is part of what gets signed, so the server supplies it for a
-     * URL that leaves it out exactly as a preset does.
+     * The default is signed without being spelled out. The server merges it back
+     * in before checking, so the URL never has to carry it — and a URL that claims
+     * a different one is a different variant, which this signature does not cover.
      */
     #[Test]
-    public function the_configured_quality_survives_the_round_trip(): void
+    public function the_configured_quality_is_signed_without_being_spelled_out(): void
     {
         config(['image-variants.quality' => 65]);
 
         $variant = Variants::make('photo.png', ['cover' => [60, 40]], 'webp');
 
-        $this->assertStringContainsString('quality=65', $variant->url());
-
-        [$path, $query] = explode('?', $variant->url(), 2);
+        $this->assertStringEndsWith('?src=photo.png&cover=60,40', $variant->url());
+        $this->assertSame('65', Operations::toQuery($variant->operations)['quality']);
 
         $this->get($variant->url())->assertOk();
-        $this->get($path.'?'.str_replace('&quality=65', '', $query))->assertOk();
+        $this->get($variant->url().'&quality=70')->assertNotFound();
+    }
+
+    /**
+     * The other half of that: a preset URL carries no operations at all, because
+     * there is nothing in it the server cannot look up for itself.
+     */
+    #[Test]
+    public function a_preset_url_carries_nothing_but_its_source(): void
+    {
+        $variant = Variants::make('photo.png', 'thumb', 'webp');
+
+        $this->assertStringEndsWith('?src=photo.png', $variant->url());
+
+        // Still signed over the whole merged set, and still generates.
+        $this->assertSame(['cover' => '60,40', 'quality' => '80'], Operations::toQuery($variant->operations));
+        $this->get($variant->url())->assertOk();
+    }
+
+    /**
+     * Only what the caller added on top has to be written down.
+     */
+    #[Test]
+    public function a_url_spells_out_only_what_the_caller_asked_for(): void
+    {
+        $added = Variants::make('photo.png', 'thumb', 'webp', null, ['grayscale' => true]);
+        $overridden = Variants::make('photo.png', 'thumb', 'webp', null, ['quality' => 50]);
+
+        $this->assertStringEndsWith('?src=photo.png&grayscale=1', $added->url());
+        $this->assertStringEndsWith('?src=photo.png&quality=50', $overridden->url());
+
+        $this->get($added->url())->assertOk();
+        $this->get($overridden->url())->assertOk();
     }
 
     #[Test]
@@ -294,7 +326,7 @@ class ImageVariantTest extends TestCase
             "/storage/variants/{$preset}/aaaaaaaaaa/{$name}?{$query}",   // hash
             "/storage/variants/{$preset}/{$hash}/other.webp?{$query}",   // name
             "/storage/variants/{$preset}/{$hash}/{$name}?{$query}&grayscale=1",
-            "/storage/variants/{$preset}/{$hash}/{$name}?".str_replace('quality=80', 'quality=70', $query),
+            "/storage/variants/{$preset}/{$hash}/{$name}?{$query}&quality=70",
             "/storage/variants/nope/{$hash}/{$name}?{$query}",           // unknown preset
             "/storage/variants/{$preset}/{$hash}/{$name}",               // no query
         ];

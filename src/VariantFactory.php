@@ -54,7 +54,13 @@ class VariantFactory
 
         $this->guardFormat($format);
 
-        return new Variant($preset, $normalized, ltrim($src, '/'), $this->filename($name ?: $src, $format));
+        return new Variant(
+            $preset,
+            $normalized,
+            ltrim($src, '/'),
+            $this->filename($name ?: $src, $format),
+            $this->explicit($normalized, $operations),
+        );
     }
 
     /**
@@ -144,7 +150,13 @@ class VariantFactory
 
         $this->guardFormat(strtolower(pathinfo($name, PATHINFO_EXTENSION)));
 
-        $variant = new Variant($preset, $normalized, ltrim($src, '/'), $name);
+        $variant = new Variant(
+            $preset,
+            $normalized,
+            ltrim($src, '/'),
+            $name,
+            $this->explicit($normalized, $query),
+        );
 
         if (! hash_equals($variant->hash(), $hash)) {
             throw new VariantException('The signature does not match this URL.');
@@ -174,6 +186,29 @@ class VariantFactory
         $this->guardDropped($inherited, $operations);
 
         return Operations::normalize(array_merge($inherited, $operations));
+    }
+
+    /**
+     * The operations the URL has to spell out: the ones this caller asked for.
+     *
+     * Everything else came from the preset or the configured defaults, and the
+     * server merges both back in before it checks the signature — so writing them
+     * into the query would only make it longer. A preset URL needs no operations
+     * at all, and `?src=…` on its own rebuilds it.
+     *
+     * Keyed off what the caller passed rather than off comparing values, so a
+     * preset that is only ever valid once overridden is not normalised on its own
+     * just to work out what to leave out.
+     *
+     * @param  array<string, list<mixed>>  $normalized
+     * @param  array<string, mixed>  $operations
+     * @return array<string, list<mixed>>
+     */
+    protected function explicit(array $normalized, array $operations): array
+    {
+        $asked = array_map(strtolower(...), array_keys($operations));
+
+        return array_intersect_key($normalized, array_flip($asked));
     }
 
     /**

@@ -5,6 +5,24 @@ All notable changes to `fruitcake/laravel-image-variants` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Variant URLs no longer spell out operations the server can look up for itself.
+  The preset and the configured defaults are merged back in before the signature is
+  checked, so the query now carries only the source plus whatever a caller added or
+  overrode — `Variants::url('img/bg.jpg', 'hero')` returns
+  `…/hero/9a8c70ca57/bg.jpg?src=img/bg.jpg` rather than
+  `…?src=img/bg.jpg&scale=1600&quality=80`.
+
+  **Hashes are unchanged**, because the signature was always computed over the full
+  merged set: existing variants do not regenerate, and previously generated long
+  URLs still resolve to the same file. `Variant` gained a fifth constructor
+  argument and a readonly `$explicit` holding the subset the URL spells out;
+  `$operations` still holds all of them. Constructing a `Variant` by hand without it
+  spells out every operation, as before.
+
 ## [0.2.0] - 2026-08-13
 
 ### Added
@@ -78,6 +96,7 @@ requested. Run `php artisan image-variants:cleanup` to reclaim the superseded on
 
 Initial release.
 
+[Unreleased]: https://github.com/fruitcake/laravel-image-variants/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/fruitcake/laravel-image-variants/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/fruitcake/laravel-image-variants/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/fruitcake/laravel-image-variants/releases/tag/v0.1.0

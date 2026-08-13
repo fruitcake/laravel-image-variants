@@ -16,7 +16,7 @@ that point, and nothing needs to have been generated ahead of time:
 ```
 
 ```html
-<img src="/storage/variants/hero/9a8c70ca57/bg.jpg?src=img/bg.jpg&scale=1600&quality=80" alt="">
+<img src="/storage/variants/hero/9a8c70ca57/bg.jpg?src=img/bg.jpg" alt="">
 ```
 
 The **first** request for that URL reaches PHP, which generates the image and
@@ -157,7 +157,7 @@ use Fruitcake\ImageVariants\Facades\Variants;
 
 // A named preset from the config
 Variants::url('img/bg.jpg', 'hero');
-// /storage/variants/hero/9a8c70ca57/bg.jpg?src=img/bg.jpg&scale=1600&quality=80
+// /storage/variants/hero/9a8c70ca57/bg.jpg?src=img/bg.jpg
 
 // Ad-hoc operations, converting to webp
 Variants::url('img/bg.jpg', ['cover' => [600, 500], 'quality' => 80], 'webp');
@@ -165,7 +165,7 @@ Variants::url('img/bg.jpg', ['cover' => [600, 500], 'quality' => 80], 'webp');
 
 // A preset, a nicer filename, and one operation added on top
 Variants::url('img/bg.jpg', 'thumb', 'webp', 'team-photo', ['grayscale' => true]);
-// /storage/variants/thumb/cb20a26822/team-photo.webp?src=img/bg.jpg&cover=100,100&grayscale=1&quality=80
+// /storage/variants/thumb/cb20a26822/team-photo.webp?src=img/bg.jpg&grayscale=1
 ```
 
 The signature is the same throughout:
@@ -183,14 +183,15 @@ Variants::url(
 `Variants::make(...)` takes the same arguments and returns the `Variant` object
 instead, which also exposes `->url()`, `->path()`, `->hash()`, `->format()`,
 `->dimensions()` and `->query()`, plus the readonly `$preset`, `$operations`,
-`$src` and `$name` it was built from.
+`$src` and `$name` it was built from. `$operations` is the full merged set — the
+smaller subset the URL spells out is `$explicit`.
 
 ### Responsive images
 
 ```php
 Variants::srcset('img/bg.jpg', [640, 1024], 'webp');
-// /storage/variants/custom/cf6b9805e5/bg.webp?src=img/bg.jpg&scale=640&quality=80 640w,
-// /storage/variants/custom/e27357f48a/bg.webp?src=img/bg.jpg&scale=1024&quality=80 1024w
+// /storage/variants/custom/cf6b9805e5/bg.webp?src=img/bg.jpg&scale=640 640w,
+// /storage/variants/custom/e27357f48a/bg.webp?src=img/bg.jpg&scale=1024 1024w
 ```
 
 `srcset()` adds a `scale` operation per width. It can be combined with a preset,
@@ -230,7 +231,7 @@ component that writes the whole thing:
 ```
 
 ```html
-<img src="/storage/variants/thumb/2de1510004/bg.png?src=img/bg.jpg&amp;cover=100,100&amp;quality=80"
+<img src="/storage/variants/thumb/2de1510004/bg.png?src=img/bg.jpg"
      width="100" height="100" alt="Team photo">
 ```
 
@@ -248,7 +249,7 @@ anything ignoring srcset falls back to:
 ```
 
 ```html
-<img src="…/bg.webp?src=img/bg.jpg&amp;scale=1600&amp;quality=80"
+<img src="…/bg.webp?src=img/bg.jpg&amp;scale=1600"
      srcset="…scale=640 640w, …scale=1024 1024w, …scale=1600 1600w"
      sizes="(max-width: 900px) 100vw, 900px"
      width="1600" height="1067" alt="Our office">
@@ -382,6 +383,10 @@ changing it moves every URL that relied on it to a new hash and those variants
 regenerate rather than being served at the old quality. Set it to `null` to
 leave the encoder to its own default.
 
+Being signed does not mean being spelled out: like a preset's operations, the
+default is merged back in server-side, so it never appears in the URL. Only a
+`quality` a caller asked for does.
+
 To keep it out of one particular variant, give that preset an explicit `false`:
 
 ```php
@@ -399,7 +404,7 @@ in `$operations` throws rather than handing back a URL that 404s.
 
 ```
 /storage/variants/{preset}/{hash}/{name}?src=…&…operations…
-└──── route prefix ────┘                 └── what gets hashed ──┘
+└──── route prefix ────┘
 ```
 
 - The three path segments decide where the file lands on disk, which is why they
@@ -408,6 +413,25 @@ in `$operations` throws rather than handing back a URL that 404s.
 - The query is what the first request reconstructs the work from. Web servers
   ignore the query string when serving static files, so it costs nothing after
   generation.
+- **The hash covers more than the query says.** It is computed over every merged
+  operation, but the query only carries what the server cannot look up for
+  itself: the preset and the configured defaults are merged back in before the
+  signature is checked. So a preset URL is nothing but its source, and an
+  operation appears only where a caller added or overrode one.
+
+That last point is why these are all the same variant, and all valid:
+
+```
+…/thumb/2de1510004/bg.webp?src=img/bg.jpg
+…/thumb/2de1510004/bg.webp?src=img/bg.jpg&cover=100,100
+…/thumb/2de1510004/bg.webp?src=img/bg.jpg&cover=100,100&quality=80
+```
+
+The first is what the package generates. The others spell out what `thumb`
+already says, which changes nothing — they normalise to the same operations, so
+they hash the same and resolve to the same file. Say something the preset does
+*not* say, though, and the signature no longer covers it: `&quality=70` on any of
+those is a different variant and returns a 404.
 - The `hash` is an **HMAC keyed with `APP_KEY`**, computed over the preset, the
   normalised operations, the source and the name. It is not a cache key — it is
   what makes the endpoint safe. Without the key nobody can compute a URL that
@@ -428,11 +452,13 @@ for a preset that does not exist, changing the source, adding or altering an
 operation, renaming the file — each produces a different hash and a 404, and
 nothing is written to disk on the way.
 
-What is signed is the operations **after** the preset is merged in. So for a
-preset URL the query is redundant — `?src=uploads/photo.jpg` on its own rebuilds
-the identical variant and validates. That is the preset name in the path earning
-its keep, not a gap: the merged result is what gets hashed, so the only thing
-reachable under a given signature is still the one variant that produced it.
+What is signed is the operations **after** the preset and the defaults are merged
+in, which is why a preset URL needs no operations in its query and is generated
+without them: `?src=uploads/photo.jpg` on its own rebuilds the identical variant
+and validates. That is the preset name in the path earning its keep, not a gap.
+The merged result is what gets hashed, so the only thing reachable under a given
+signature is still the one variant that produced it — a shorter query says less,
+it does not permit more.
 
 Behind that, a `Variant` cannot even hold a path that would escape. `preset` and
 `name` are single path segments and are refused if they contain a separator, a
