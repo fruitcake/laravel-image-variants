@@ -72,19 +72,18 @@ return [
     | Every URL is keyed with an HMAC over the preset, the merged operations, the
     | source and the name — there is no unsigned path to a variant, whatever the
     | preset — so only URLs this application generated can produce one at all.
-    | These limits are the second line of defence.
+    | What a URL may *ask* for therefore needs no limit of its own: nothing can
+    | ask for anything this application did not already decide to offer.
     |
-    */
-
-    'max_dimension' => 4000,
-
-    /*
-    | The largest source this will decode, in megapixels. Unlike max_dimension,
-    | which bounds what a URL may ask for, this bounds what it costs to answer:
-    | decoding takes roughly 4 bytes per pixel whatever the file size, so a
-    | 300KB solid-colour 10000x10000 PNG needs ~380MB even to make a thumbnail.
+    | What it costs to answer is another matter, because that is decided by the
+    | source rather than by the URL. Decoding takes roughly 4 bytes per pixel
+    | whatever the file size, so a 300KB solid-colour 10000x10000 PNG needs
+    | ~380MB even to make a thumbnail of. This is the largest source that will be
+    | decoded, in megapixels, read from the image header without decoding it.
+    |
     | 24 clears any camera upload; lower it if memory_limit is tight, or set it
     | to 0 to accept anything.
+    |
     */
 
     'max_source_megapixels' => 24,
@@ -94,6 +93,25 @@ return [
     'source_formats' => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp'],
 
     'output_formats' => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif'],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Quality
+    |--------------------------------------------------------------------------
+    |
+    | The encoding quality, 1–100, used when neither the preset nor the URL asks
+    | for one. It is merged underneath both, so a preset overrides it and an
+    | operation passed alongside overrides that in turn — and a preset setting
+    | `'quality' => false` drops it, leaving the encoder to its own default.
+    |
+    | Like a preset it is part of what a URL is signed with, so changing it
+    | changes every hash that relied on it: those variants regenerate rather than
+    | being served at the old quality. Set it to null to leave the encoder alone
+    | unless something asks otherwise.
+    |
+    */
+
+    'quality' => 80,
 
     /*
     |--------------------------------------------------------------------------

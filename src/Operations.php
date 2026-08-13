@@ -213,18 +213,16 @@ final class Operations
         // Offsets come as a pair: an x without a y is a typo, not a default.
         self::expect($name, $args, 2, 4);
 
-        $max = self::maxDimension();
-
         $box = [
-            self::number($name, $args[0] ?? null, 1, $max),
-            self::number($name, $args[1] ?? null, 1, $max),
+            self::number($name, $args[0] ?? null, 1),
+            self::number($name, $args[1] ?? null, 1),
         ];
 
         if (count($args) === 2) {
             return $box;
         }
 
-        return [...$box, self::number($name, $args[2] ?? null, 0, $max), self::number($name, $args[3] ?? null, 0, $max)];
+        return [...$box, self::number($name, $args[2] ?? null, 0), self::number($name, $args[3] ?? null, 0)];
     }
 
     /**
@@ -251,10 +249,8 @@ final class Operations
     {
         self::expect($name, $args, 1, 2);
 
-        $max = self::maxDimension();
-
-        $width = isset($args[0]) ? self::number($name, $args[0], 1, $max) : null;
-        $height = isset($args[1]) ? self::number($name, $args[1], 1, $max) : null;
+        $width = isset($args[0]) ? self::number($name, $args[0], 1) : null;
+        $height = isset($args[1]) ? self::number($name, $args[1], 1) : null;
 
         if ($both && ($width === null || $height === null)) {
             throw new InvalidArgumentException("Operation [{$name}] needs both a width and a height.");
@@ -293,7 +289,12 @@ final class Operations
         return '#'.$color;
     }
 
-    private static function number(string $name, ?string $value, int $min, int $max): int
+    /**
+     * A whole number in range. Dimensions pass no $max: what a URL may ask for is
+     * bounded by it having to be signed at all, and an application asking its own
+     * code for a 20000px image is entitled to one.
+     */
+    private static function number(string $name, ?string $value, int $min, ?int $max = null): int
     {
         if ($value === null || ! preg_match('/^\d+$/', $value)) {
             throw new InvalidArgumentException("Operation [{$name}] expects a whole number, got [".($value ?? 'nothing').'].');
@@ -301,7 +302,11 @@ final class Operations
 
         $number = (int) $value;
 
-        if ($number < $min || $number > $max) {
+        if ($number < $min) {
+            throw new InvalidArgumentException("Operation [{$name}] expects a number of at least {$min}, got [{$number}].");
+        }
+
+        if ($max !== null && $number > $max) {
             throw new InvalidArgumentException("Operation [{$name}] expects a number between {$min} and {$max}, got [{$number}].");
         }
 
@@ -333,10 +338,5 @@ final class Operations
 
             throw new InvalidArgumentException("Operation [{$name}] expects {$expected} argument(s), got ".count($args).'.');
         }
-    }
-
-    private static function maxDimension(): int
-    {
-        return (int) config('image-variants.max_dimension', 4000);
     }
 }

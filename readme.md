@@ -189,8 +189,8 @@ instead, which also exposes `->url()`, `->path()`, `->hash()`, `->format()`,
 
 ```php
 Variants::srcset('img/bg.jpg', [640, 1024], 'webp');
-// /storage/variants/custom/cf6b9805e5/bg.webp?src=img/bg.jpg&scale=640 640w,
-// /storage/variants/custom/e27357f48a/bg.webp?src=img/bg.jpg&scale=1024 1024w
+// /storage/variants/custom/cf6b9805e5/bg.webp?src=img/bg.jpg&scale=640&quality=80 640w,
+// /storage/variants/custom/e27357f48a/bg.webp?src=img/bg.jpg&scale=1024&quality=80 1024w
 ```
 
 `srcset()` adds a `scale` operation per width. It can be combined with a preset,
@@ -248,7 +248,7 @@ anything ignoring srcset falls back to:
 ```
 
 ```html
-<img src="…/bg.webp?src=img/bg.jpg&amp;scale=1600"
+<img src="…/bg.webp?src=img/bg.jpg&amp;scale=1600&amp;quality=80"
      srcset="…scale=640 640w, …scale=1024 1024w, …scale=1600 1600w"
      sizes="(max-width: 900px) 100vw, 900px"
      width="1600" height="1067" alt="Our office">
@@ -323,7 +323,7 @@ the URL). Both forms normalise to the same thing.
 | `grayscale` | — | `grayscale=1` |
 | `blur` | `0–100`, default `5` | `blur=10` |
 | `sharpen` | `0–100`, default `10` | `sharpen=15` |
-| `quality` | `1–100` | `quality=80` |
+| `quality` | `1–100`, default from config | `quality=80` |
 
 A few rules the grammar enforces:
 
@@ -336,11 +336,17 @@ A few rules the grammar enforces:
 - **Backgrounds** are bare hex (`ffffff` or `fff`, no `#`), or the literal
   `dominant` to sample the image's own average colour.
 - **Turning an operation off.** Passing `false` or `null` drops it, which is how
-  a preset's value gets removed rather than replaced:
-  `Variants::url('img/bg.jpg', 'thumb', operations: ['quality' => false])`.
+  a preset removes an inherited value rather than replacing it:
+  `'raw' => ['scale' => [1600, null], 'quality' => false]`.
+- **Default quality.** `quality` is the one operation with a configured default,
+  `image-variants.quality`, applied when neither the preset nor the URL asks for
+  one — see below.
+- **No upper bound on dimensions.** They have a floor but no ceiling: nothing can
+  ask for a variant without a signature over the operations describing it, so the
+  only thing able to request a 20000px image is your own code.
 - Anything outside the grammar — an unknown operation, a value out of range, a
-  dimension over `max_dimension` — throws `InvalidArgumentException` when you
-  build the URL, and returns a 404 when it arrives over HTTP.
+  dimension below `1` — throws `InvalidArgumentException` when you build the URL,
+  and returns a 404 when it arrives over HTTP.
 
 ## Presets
 
@@ -360,6 +366,34 @@ with one value changed. Editing a preset changes the hash of every URL using it,
 so variants built from the old definition are simply never requested again —
 they are not served stale, and there is no cache to bust. (They do stay on disk
 until cleaned up; see below.)
+
+### Default quality
+
+`quality` is the one operation with a configured default, so it does not have to
+be repeated in every preset:
+
+```php
+'quality' => 80,
+```
+
+It sits underneath both layers above — a preset overrides it, and an operation
+passed alongside overrides that — and it is signed like anything else, so
+changing it moves every URL that relied on it to a new hash and those variants
+regenerate rather than being served at the old quality. Set it to `null` to
+leave the encoder to its own default.
+
+To keep it out of one particular variant, give that preset an explicit `false`:
+
+```php
+'presets' => [
+    'original' => ['scale' => [2000, null], 'quality' => false],
+],
+```
+
+It has to be the preset rather than the call, because the query carries only what
+the operations normalise to, and a dropped operation normalises to nothing at
+all: the server would merge the default back in and refuse its own URL. Doing it
+in `$operations` throws rather than handing back a URL that 404s.
 
 ## How the URL works
 
@@ -408,8 +442,11 @@ built — including one constructed directly in PHP, which goes through neither 
 route pattern nor the signature.
 
 Sources are then resolved inside the configured disk (and prefix) and rejected if
-they escape it, output formats are limited to `output_formats`, and dimensions to
-`max_dimension`.
+they escape it, and output formats are limited to `output_formats`.
+
+Dimensions have no upper bound. There is nothing for one to protect against: a
+URL asking for a 20000px image only exists if this application signed it, so the
+limit that matters is whichever line of your own code asked for it.
 
 `APP_KEY` must be set. Without it the digest would be plain SHA-256 over public
 inputs — computable by anyone, turning the endpoint into an open resize service —
@@ -417,10 +454,11 @@ so building a URL throws instead.
 
 ### Guard the input, not just the output
 
-`max_dimension` bounds what a URL may *ask* for. It says nothing about what
-answering costs: decoding takes roughly 4 bytes per pixel whatever the file size,
-so a solid-colour 10000×10000 PNG is ~300KB on disk and ~380MB decoded, and
-asking it for a 60×40 thumbnail still pays that in full.
+The signature bounds what a URL may *ask* for. It says nothing about what
+answering costs, because that is decided by the source rather than by the
+operations: decoding takes roughly 4 bytes per pixel whatever the file size, so a
+solid-colour 10000×10000 PNG is ~300KB on disk and ~380MB decoded, and asking it
+for a 60×40 thumbnail still pays that in full.
 
 `max_source_megapixels` (default `24`) bounds the source itself, read from the
 image header without decoding. This matters most with the default source disk,
@@ -531,12 +569,12 @@ rm -rf storage/app/public/variants
 | `source.disk` | `public` | The filesystem disk sources are read from. |
 | `source.prefix` | `null` | An optional directory within that disk to confine sources to. |
 | `cache` | `storage_path('app/public/variants')` | Where generated variants are written. Always a local path — see above. |
-| `max_dimension` | `4000` | Upper bound on any width, height or offset a URL may ask for. |
 | `max_source_megapixels` | `24` | Largest source that will be decoded. `0` disables the check. |
 | `hash_length` | `10` | Characters of the HMAC kept in the URL. |
 | `source_formats` | jpg, jpeg, png, gif, webp, avif, bmp | What may be read. |
 | `output_formats` | jpg, jpeg, png, gif, webp, avif | What may be written. |
-| `presets` | thumb, photo, hero | Named operation sets. |
+| `quality` | `80` | Encoding quality when neither the preset nor the URL sets one. `null` leaves it to the encoder. |
+| `presets` | `[]` | Named operation sets. |
 | `blade.component` | `variant` | Name the `<x-variant>` component registers under. `null` to skip it. |
 | `cache_store` | `null` | Cache store for generation locks and source measurements. `null` uses the default. |
 | `lock.enabled` | `true` | Serialise generation of the same variant across workers. |
