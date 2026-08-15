@@ -8,6 +8,9 @@
 
 ### Resize, crop and convert images on the fly — without pre-rendering
 
+<img width="1774" height="887" alt="image" src="https://github.com/user-attachments/assets/d10412b8-b87f-47e3-8d52-aeacebab95b5" />
+
+
 Ask for a variant in a template and you get a URL back. Nothing is generated at
 that point, and nothing needs to have been generated ahead of time:
 
