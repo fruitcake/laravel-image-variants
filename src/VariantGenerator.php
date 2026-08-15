@@ -117,7 +117,7 @@ class VariantGenerator
 
         $image = Operations::apply($variant->operations, $this->read($variant));
 
-        $bytes = $this->encode($image, $variant->format())->toBytes();
+        $bytes = $image->toFormat($variant->format())->toBytes();
 
         File::ensureDirectoryExists(dirname($target));
 
@@ -307,19 +307,5 @@ class VariantGenerator
         if (! in_array($extension, (array) config('image-variants.source_formats'), true)) {
             throw new VariantException("Source [{$path}] is not a supported image format.");
         }
-    }
-
-    protected function encode(ProcessedImage $image, string $format): ProcessedImage
-    {
-        return match ($format) {
-            'jpg' => $image->toJpg(),
-            'jpeg' => $image->toJpeg(),
-            'png' => $image->toPng(),
-            'gif' => $image->toGif(),
-            'webp' => $image->toWebp(),
-            'avif' => $image->toAvif(),
-            'bmp' => $image->toBmp(),
-            default => throw new VariantException("Unsupported output format [{$format}]."),
-        };
     }
 }

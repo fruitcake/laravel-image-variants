@@ -16,7 +16,7 @@
         "illuminate/console": "^13.0",
         "illuminate/filesystem": "^13.0",
         "illuminate/http": "^13.0",
-        "illuminate/image": "^13.24",
+        "illuminate/image": "^13.25",
         "illuminate/routing": "^13.0",
         "illuminate/support": "^13.24",
         "intervention/image": "^4.0"
